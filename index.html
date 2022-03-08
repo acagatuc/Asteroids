@@ -1,0 +1,335 @@
+<html>
+
+<head>
+  <meta charset=utf-8>
+  <title>Asteroids</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body onload="loadAsteroids();">
+  <div id="score" style="display: inline; font-size: 30; position:absolute; color:white; right:0;">Score: 0</div>
+  <div id="level" style="display: inline; font-size: 30; position:absolute; color:white; left:0;">Level: 0</div>
+
+  <div id="game over" style="display: inline; font-size: 50; position:absolute; color:white; left:50%; top:50%"></div>
+  <button id="restart"
+    style="display: none; font-size: 30; position:absolute; background-color:black;color:white; left:50%; top:60%"
+    onclick="prepArray()">Restart</button>
+
+  <canvas id="myCanvas" width="512" height="512"></canvas>
+
+  <script src="node_modules/three/build/three.js"></script>
+</body>
+
+</html>
+
+<script>
+  // RENDERER
+  var canvas = document.getElementById('myCanvas');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas });
+  renderer.setClearColor(0x000000);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // CAMERA
+  var fov = 45;
+  var aspect = window.innerWidth / window.innerHeight;
+  var camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 3000);
+  camera.position.z = 50;
+
+  // SCENE
+  var scene = new THREE.Scene();
+
+  // LIGHTS
+  var light = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(light);
+  var light1 = new THREE.PointLight(0xffffff, 0.5);
+  scene.add(light1);
+
+
+  var asteroidsPerLevel = [3, 5, 8];
+  var level = 0;
+  var score = 0;
+  var gameOver = false; // change if the game is over and stop asteroid movement
+
+  // game loop variables
+  var gameTime = 0;
+  var spaceship;
+  var asteroids = [];
+  var bullets;
+
+  // for reading multiple inputs
+  // https://stackoverflow.com/questions/29266602/javascript-when-having-pressed-2-keys-simultaneously-down-leaving-one-of-them
+  var keyMap = [];
+  document.addEventListener("keydown", onDocumentKeyDown, true);
+  document.addEventListener("keyup", onDocumentKeyUp, true);
+
+  function onDocumentKeyDown() {
+    var keyCode = event.keyCode;
+    keyMap[keyCode] = true;
+  }
+
+  function onDocumentKeyUp() {
+    var keyCode = event.keyCode;
+    keyMap[keyCode] = false;
+  }
+
+
+  // create geometry for the spaceship
+  var otherGeo = new THREE.SphereGeometry(1, 10, 10);
+  var otherMat = new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('explosion.png') });
+  var spaceshipGeo = new THREE.ConeGeometry(.5, 1);
+  var spaceshipMat = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+  var spaceship = new THREE.Mesh(spaceshipGeo, spaceshipMat);
+  var collision = new THREE.Mesh(otherGeo, otherMat);
+
+  var bulletGeo = new THREE.BoxGeometry(.1, .1, .1);
+  var bulletMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  var bullet = new THREE.Mesh(bulletGeo, bulletMat);
+  var shooting = false;
+
+  // a plume of fire from jets if I want to implement it
+  var plumeGeo = new THREE.BoxGeometry(.25, .25, .25);
+  var plumeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  var plume = new THREE.Mesh(plumeGeo, plumeMat);
+  plume.position.y = spaceship.position.y - 1;
+
+
+
+  // create geometry for asteroids 
+  var asteroidGeo = new THREE.SphereGeometry(1, 10, 10);
+  var asteroidMat = new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('asteroid.jpg') });
+
+  var smallAsteroidGeo = new THREE.SphereGeometry(.5, 10, 10);
+
+
+  function prepArray(){
+    gameOver = false;
+    level = 0;
+    score = 0;
+    document.getElementById("game over").innerText = "";
+    document.getElementById("restart").style.display = "none";
+    scene.remove(collision);
+
+    for(i = 0; i < asteroids.length; i++){
+      scene.remove(asteroids[i]);
+    }
+
+    asteroids = [];
+
+    loadAsteroids();
+  }
+
+  function loadAsteroids() {
+    // adds the spaceship in the middle of the screen
+    spaceship.position.x = 0;
+    spaceship.position.y = 0;
+    collision.position.x = spaceship.position.x;
+    collision.position.y = spaceship.position.y;
+
+    scene.add(spaceship);
+
+    for (i = 0; i < asteroidsPerLevel[level]; i++) {
+      var asteroid = new THREE.Mesh(asteroidGeo, asteroidMat);
+      asteroid.position.x = randomIntFromInterval(0, 40);
+      asteroid.position.y = randomIntFromInterval(0, 20);
+
+      asteroid.radius = 1;
+
+      // to make sure that asteroids don't spawn IN the spaceship
+      if (spaceship.position.x + .75 >= asteroid.position.x - 1 && spaceship.position.x - .75 <= asteroid.position.x + 1) {
+        if (spaceship.position.y + .75 >= asteroid.position.y - 1 && spaceship.position.y - .75 <= asteroid.position.y + 1) {
+          asteroid.position.x = randomIntFromInterval(0, 40);
+          asteroid.position.y = randomIntFromInterval(0, 20);
+
+        }
+      }
+
+      asteroid.speedX = randomIntFromInterval(-2, 2);
+      asteroid.speedY = randomIntFromInterval(-2, 2);
+
+      asteroid.timesHit = 0;
+      asteroid.name = 'asteroid' + i;
+
+      asteroids.push(asteroid);
+      scene.add(asteroid);
+    }
+    animate();
+  }
+
+  function createSmallerAsteroids(asteroid) {
+    for (i = 0; i < 5; i++) {
+      var smallAsteroid = new THREE.Mesh(smallAsteroidGeo, asteroidMat);
+      smallAsteroid.name = 'smallAsteroid' + asteroid.name + i;
+      smallAsteroid.position.x = asteroid.position.x;
+      smallAsteroid.position.y = asteroid.position.y;
+      smallAsteroid.position.z = asteroid.position.z;
+
+      smallAsteroid.radius = .25;
+
+      smallAsteroid.speedX = randomIntFromInterval(-2, 2) * .1;
+      smallAsteroid.speedY = randomIntFromInterval(-2, 2) * .1;
+      smallAsteroid.timesHit = 0;
+      asteroids.push(smallAsteroid);
+      scene.add(smallAsteroid);
+    }
+  }
+
+  //https://stackoverflow.com/questions/4959975/generate-random-number-between-two-numbers-in-javascript
+  function randomIntFromInterval(min, max) { // min and max included 
+    return Math.floor(Math.random() * (max - min + 1) + min)
+  }
+
+  // does stuff when keys are pressed
+  function moveCharacter() {
+    // game buttons
+    if (keyMap[65] == true) { // turn left
+      spaceship.rotateZ(Math.PI / 36);
+    }
+    if (keyMap[68] == true) { // turn right
+      spaceship.rotateZ(-Math.PI / 36);
+    }
+    if (keyMap[83] == true) { // move forward 
+      spaceship.translateY(.5);
+    }
+    if (keyMap[32] == true) {
+      shootBullet(spaceship.rotation.z);
+    }
+  } // end handleKeyDown
+
+  function shootBullet(direction) {
+    bullet.position.x = spaceship.position.x;
+    bullet.position.y = spaceship.position.y;
+    bullet.position.z = spaceship.position.z;
+    bullet.rotation.z = direction;
+    shooting = true;
+    scene.add(bullet);
+  }
+
+  function checkAsteroidCollision() {
+    var xPosition = spaceship.position.x;
+    var yPosition = spaceship.position.y;
+    for (i = 0; i < asteroids.length; i++) {
+      if (xPosition + .75 >= asteroids[i].position.x - asteroids[i].radius && xPosition - .75 <= asteroids[i].position.x + asteroids[i].radius) {
+        if (yPosition + .75 >= asteroids[i].position.y - asteroids[i].radius && yPosition - .75 <= asteroids[i].position.y + asteroids[i].radius) {
+          // produce collision and destroy ship
+          collision.position.x = xPosition;
+          collision.position.y = yPosition;
+          scene.add(collision);
+          gameOver = true;
+        }
+      }
+    }
+  }
+
+  function checkBulletCollision() {
+    var xPosition = bullet.position.x;
+    var yPosition = bullet.position.y;
+    for (i = 0; i < asteroids.length; i++) {
+      if (xPosition + .1 >= asteroids[i].position.x - asteroids[i].radius && xPosition - .1 <= asteroids[i].position.x + asteroids[i].radius) {
+        if (yPosition + .5 >= asteroids[i].position.y - asteroids[i].radius && yPosition - .5 <= asteroids[i].position.y + asteroids[i].radius) {
+          // get the asteroid by name
+          var hit = scene.getObjectByName(asteroids[i].name);
+
+          // increment the times hit
+          hit.timesHit++;
+
+          // if it is a small asteroid
+          if (hit.name.includes("smallAsteroid")) {
+            scene.remove(asteroids[i]);
+            asteroids.splice(i, 1);
+            score += 10;
+          }
+
+          // if it is a normal asteroid and has been hit 5 times, destroy it and add to score
+          else if (hit.timesHit == 5) {
+            var a = asteroids[i];
+            scene.remove(asteroids[i]);
+            asteroids.splice(i, 1);
+            createSmallerAsteroids(a);
+            score += 100;
+
+            document.getElementById("score").innerText = "Score: " + score;
+          }
+          // otherwise change the color and speed
+          else {
+            var mat = hit.material.clone();
+            mat.color.setHex(0xff0000);
+            hit.material = mat;
+
+            hit.speedX = .1;
+            hit.speedY = .1;
+
+            score += 20;
+
+            document.getElementById("score").innerText = "Score: " + score;
+          }
+
+          // reloads bullet so it doesnt hit anymore asteroids 
+          bullet.speedX = 0;
+          bullet.speedY = 0;
+          bullet.position.x = spaceship.position.x;
+          bullet.position.y = spaceship.position.y;
+          bullet.rotation.z = spaceship.rotation.z;
+          shooting = false;
+          scene.remove(bullet);
+        }
+      }
+    }
+  }
+
+  function animate() {
+    if (!gameOver) {
+      moveCharacter();
+
+      //update asteroid position
+      for (i = 0; i < asteroids.length; i++) {
+        asteroids[i].position.x += (asteroids[i].speedX * 0.1);
+        asteroids[i].position.y += (asteroids[i].speedY * 0.1);
+
+
+        // wrap around the screen
+        if (asteroids[i].position.x < -40) {
+          asteroids[i].position.x = 40;
+        }
+        if (asteroids[i].position.x > 40) {
+          asteroids[i].position.x = -40;
+        }
+        if (asteroids[i].position.y < -20) {
+          asteroids[i].position.y = 20;
+        }
+        if (asteroids[i].position.y > 20) {
+          asteroids[i].position.y = -20;
+        }
+
+        scene.add(asteroids[i]);
+      }
+
+      checkAsteroidCollision();
+
+      if (shooting) {
+        bullet.translateY(2);
+        checkBulletCollision();
+      }
+
+      if (asteroids.length == 0) {
+        // start new level
+        level++;
+        document.getElementById("level").innerText = "Level: " + level;
+        loadAsteroids();
+      }
+
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+      gameTime++;
+    }
+    else {
+      document.getElementById("game over").innerText = "Game Over";
+      document.getElementById("restart").style.display = "inline";
+    }
+  }
+</script>
